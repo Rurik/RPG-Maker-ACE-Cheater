@@ -13,11 +13,12 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
+type Disposer func() error
+
 const (
 	GameRGSS3A       = "Game.rgss3a"
 	GameRGSS3ABackup = "Game.rgss3a~"
 	ScriptsRVDARA2   = "Scripts.rvdata2"
-	MainRB           = "Main.rb"
 	SceneBaseRB      = "Scene_Base.rb"
 	CheatScriptRB    = "AsCheater.rb"
 )
@@ -29,6 +30,8 @@ const (
 //go:embed AsCheater.rb
 var CheatScript string
 
+// RPGMakerDecrypterCLIBin https://github.com/uuksu/RPGMakerDecrypter/releases
+//
 //go:embed RPGMakerDecrypter-cli.exe
 var RPGMakerDecrypterCLIBin []byte
 
@@ -51,7 +54,7 @@ func Fatalln(args ...any) {
 	os.Exit(1)
 }
 
-func createExe(name string, data []byte) string {
+func createExe(name string, data []byte) (string, Disposer) {
 	Println("Creating", name, "...")
 	file, err := os.CreateTemp(os.TempDir(), name)
 	if err != nil {
@@ -68,7 +71,9 @@ func createExe(name string, data []byte) string {
 
 	Println("Created", name, "at", file.Name())
 
-	return file.Name()
+	return file.Name(), func() error {
+		return os.Remove(file.Name())
+	}
 }
 
 func run(name, cwd string, arg ...string) {
@@ -159,56 +164,48 @@ func main() {
 }
 
 func patch(root string) {
-	dec := createExe("RPGMAC-RPGMakerDecrypter-cli.exe", RPGMakerDecrypterCLIBin)
-	rvu := createExe("RPGMAC-rvunpacker.exe", RVUnpackerBin)
+	dec, decDis := createExe("RPGMAC-RPGMakerDecrypter-cli.exe", RPGMakerDecrypterCLIBin)
+	rvu, rvuDis := createExe("RPGMAC-rvunpacker.exe", RVUnpackerBin)
 
 	scriptsRVDARA2 := path.Join(root, "Data", ScriptsRVDARA2)
 	_, err := os.Stat(scriptsRVDARA2)
 	if err != nil {
 		unzipGame(dec, root)
-		injectMain(rvu, root)
+		injectSceneUpdate(rvu, root)
 	} else {
 		Println("Game already unzipped")
-		injectMain(rvu, root)
+		injectSceneUpdate(rvu, root)
 	}
+
+	defer func() {
+		_ = decDis()
+		_ = rvuDis()
+	}()
 
 	Println("Patched Game.exe at", root)
 }
 
-func injectMain(exe, root string) {
+func injectSceneUpdate(exe, root string) {
 	Println("Patching Game.exe...")
 
 	// decode Scripts.rvdata2
 	run(exe, root, "decode", root)
 
-	mainRb := path.Join(root, "Scripts", MainRB)
 	sceneBaseRb := path.Join(root, "Scripts", SceneBaseRB)
 
-	if _, err := os.Stat(mainRb); err != nil {
-		Fatalln("Failed to find", mainRb)
-	}
 	if _, err := os.Stat(sceneBaseRb); err != nil {
 		Fatalln("Failed to find", sceneBaseRb)
-	}
-
-	mainText, err := os.ReadFile(mainRb)
-	if err != nil {
-		Fatalln("Failed to read", mainRb, ":", err)
-	}
-
-	if strings.Contains(string(mainText), CheatScript) {
-		Fatalln("Game already patched")
-	}
-
-	err = os.WriteFile(mainRb, []byte(fmt.Sprintf("%s\r\n%s", CheatScript, string(mainText))), 0644)
-	if err != nil {
-		Fatalln("Failed to write", mainRb, ":", err)
 	}
 
 	sceneBaseText, err := os.ReadFile(sceneBaseRb)
 	if err != nil {
 		Fatalln("Failed to read", sceneBaseRb, ":", err)
 	}
+
+	if strings.Contains(string(sceneBaseText), CheatScript) {
+		Fatalln("Game already patched")
+	}
+
 	sceneBaseLines := strings.Split(string(sceneBaseText), "\r\n")
 	injectPoint := -1
 	for i, line := range sceneBaseLines {
@@ -220,7 +217,10 @@ func injectMain(exe, root string) {
 	if injectPoint < 0 {
 		Fatalln("Failed to find 'def update' in", sceneBaseRb)
 	}
-	sceneBaseInjectedText := strings.Join(sceneBaseLines[:injectPoint+1], "\r\n")
+
+	sceneBaseInjectedText := CheatScript + "\r\n\r\n"
+
+	sceneBaseInjectedText += strings.Join(sceneBaseLines[:injectPoint+1], "\r\n")
 	sceneBaseInjectedText += "\r\n" + SceneBaseInjectionScript + "\r\n"
 	sceneBaseInjectedText += strings.Join(sceneBaseLines[injectPoint+1:], "\r\n")
 	err = os.WriteFile(sceneBaseRb, []byte(sceneBaseInjectedText+"\r\n"), 0644)
