@@ -39,25 +39,8 @@
       ```shell
       rvunpacker.exe decode .
       ```
-- Copy everything in [AsCheater.rb](AsCheater.rb) to the beginning of `Scripts/Main.rb`.
-    - Snippet:
-      ```ruby
-      blah blah blah
-      
-            end
-          end
-        end
-      end
-      
-      #==============================================================================
-      # ■ Main
-      #------------------------------------------------------------------------------
-      # 　モジュールとクラスの定義が終わった後に実行される処理です。
-      #==============================================================================
-      
-      blah blah blah
-      ```
 - Open `Scripts/Scene_Base.rb`:
+    - Copy everything in [AsCheater.rb](AsCheater.rb) to the beginning of this file.
     - Put code `AsCheater.update` after line `def update`. For example:
       ```ruby
       # other codes...
