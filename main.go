@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -114,9 +115,10 @@ func main() {
 		CheatScript = string(bs)
 	}
 
+	// Parse root from args
 	root := "."
-	if len(os.Args) > 1 {
-		root = os.Args[1]
+	if args := flag.Args(); len(args) > 0 {
+		root = args[0]
 	}
 
 	Println("Ready to patch Game.exe at", root)
@@ -127,6 +129,31 @@ func main() {
 	} else if !stat.IsDir() {
 		Fatalln(root, "is not a directory")
 	}
+
+	// Parse for commandline flags for operations.
+	doPatch := flag.Bool("patch", false, "Patch game")
+	doRestore := flag.Bool("restore", false, "Restore game")
+	doRepatch := flag.Bool("repatch", false, "Restore then patch game")
+	flag.Parse()
+
+    if *doPatch || *doRestore || *doRepatch {
+		switch {
+		case *doPatch:
+			patch(root)
+		case *doRestore:
+			restoreGame(root)
+		case *doRepatch:
+			rgss3 := path.Join(root, GameRGSS3ABackup)
+			if _, err := os.Stat(rgss3); err == nil {
+				restoreGame(root)
+			} else {
+				Println("Failed to find", rgss3, ", nothing to restore, start patching straight away")
+			}
+			patch(root)
+		}
+		return
+	}
+
 
 	selections := []string{
 		"Patch this game(default)",    // 0
